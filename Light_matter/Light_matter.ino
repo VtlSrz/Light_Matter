@@ -4,38 +4,40 @@
 #include <BH1750.h>
 #include <OneButton.h>
 #include <Preferences.h>
+
+// --- WIFI & OTA ---
 #include <WiFi.h>
-#include <WebServer.h> 
+#include <WebServer.h>
 #include <ElegantOTA.h>
 
-
+// --- ПІНИ ---
 #define PIN_BATTERY 0
-#define PIN_BTN_MENU 2   
-#define PIN_BTN_CHANGE 3 
+#define PIN_BTN_MENU 1    
+#define PIN_BTN_CHANGE 2  
 
-
+// --- ДИСПЛЕЙ ---
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-
+// --- ДАТЧИК ---
 BH1750 lightMeter;
 
-
+// --- ПАМ'ЯТЬ ---
 Preferences prefs;
 
+// --- WEB SERVER ---
+WebServer server(80);
 
-WebServer server(80); 
-
-
+// --- КНОПКИ ---
 OneButton btnMenu(PIN_BTN_MENU, true);
 OneButton btnChange(PIN_BTN_CHANGE, true);
 
-
+// --- СТАНИ ---
 enum AppState { STATE_MAIN, STATE_MENU, STATE_WIFI_SERVICE };
 AppState currentState = STATE_MAIN;
 
-
+// --- ЗМІННІ ---
 const float dividerRatio = 2.0; 
 int selectedIndex = 1; 
 int lockMode = 1; 
@@ -45,7 +47,7 @@ float accumulatedLux = 0;
 int sampleCount = 0;      
 float currentEV = 0;
 
-
+// --- НАЛАШТУВАННЯ ---
 int settingsBrightness = 2; 
 int settingsBatStyle = 0;   
 int settingsSleepIdx = 5;   
@@ -55,7 +57,7 @@ int settingsRotate = 0;
 unsigned long lastActivityTime = 0; 
 unsigned long lastLuxUpdate = 0; 
 
-
+// --- МАСИВИ ---
 const float fStops[] = { 0.7, 0.8, 0.9, 0.95, 1.0, 1.1, 1.2, 1.4, 1.6, 1.7, 1.8, 2.0, 2.2, 2.4, 2.5, 2.8, 3.2, 3.5, 4.0, 4.5, 4.8, 5.0, 5.6, 6.3, 6.7, 7.1, 8.0, 9.0, 9.5, 10, 11, 12.5, 13, 14, 16, 18, 19, 20, 22, 25, 29, 32, 36, 40, 45, 51, 57, 64 };
 const int fStopCount = sizeof(fStops) / sizeof(fStops[0]);
 
@@ -73,10 +75,13 @@ int isoIdx = 6;
 int apertureIdx = 22; 
 int shutterIdx = 18;  
 
+// --- ЗМІННІ МЕНЮ ---
 int menuIndex = 0; 
+int menuScrollTop = 0; 
 const int menuItemsCount = 7; 
+const int menuVisibleItems = 4;
 
-
+// --- ФУНКЦІЇ ---
 
 void setBrightness(int level) {
   int contrast = 0;
@@ -147,13 +152,10 @@ String getEvShiftString() {
   return s;
 }
 
-
-
 void startWiFiService() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP("Light_Matter", "12345678");
   
-
   server.on("/", []() {
     server.send(200, "text/plain", "Light Matter OTA Service. Go to /update");
   });
@@ -165,13 +167,13 @@ void startWiFiService() {
 }
 
 void stopWiFiService() {
-  server.stop(); 
+  server.stop();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_OFF);
   currentState = STATE_MENU; 
 }
 
-
+// --- CALLBACKS ---
 
 void clickMenu() {
   lastActivityTime = millis(); 
@@ -185,6 +187,13 @@ void clickMenu() {
   } 
   else if (currentState == STATE_MENU) {
     menuIndex = (menuIndex + 1) % menuItemsCount;
+    // SCROLL LOGIC
+    if (menuIndex >= menuScrollTop + menuVisibleItems) {
+      menuScrollTop = menuIndex - menuVisibleItems + 1;
+    }
+    if (menuIndex == 0) {
+      menuScrollTop = 0;
+    }
     drawMenuScreen();
   }
   else if (currentState == STATE_WIFI_SERVICE) {
@@ -199,6 +208,7 @@ void longPressMenu() {
   if (currentState == STATE_MAIN) {
     currentState = STATE_MENU;
     menuIndex = 0;
+    menuScrollTop = 0; 
     drawMenuScreen();
   } 
   else if (currentState == STATE_MENU) {
@@ -224,32 +234,22 @@ void clickChange() {
     drawMainScreen();
   } 
   else if (currentState == STATE_MENU) {
+    // НОВИЙ ПОРЯДОК ПУНКТІВ
     switch(menuIndex) {
-      case 0: 
-        startWiFiService();
-        break;
-      case 1: 
-        settingsEvShift++;
-        if (settingsEvShift > 9) settingsEvShift = -9;
-        break;
-      case 2: 
-        settingsBrightness = (settingsBrightness + 1) % 5; 
-        setBrightness(settingsBrightness); 
-        break;
-      case 3: 
-        settingsBatStyle = (settingsBatStyle + 1) % 3; 
-        break;
-      case 4: 
-        settingsSleepIdx = (settingsSleepIdx + 1) % sleepTimesCount; 
-        break;
-      case 5: 
-        settingsRotate = !settingsRotate; 
-        applyRotation();
-        break;
-      case 6: 
-        currentState = STATE_MAIN; 
-        savePreferences(); 
-        break;
+      case 0: // EV Shift
+        settingsEvShift++; if (settingsEvShift > 9) settingsEvShift = -9; break;
+      case 1: // Brightness
+        settingsBrightness = (settingsBrightness + 1) % 5; setBrightness(settingsBrightness); break;
+      case 2: // Bat Style
+        settingsBatStyle = (settingsBatStyle + 1) % 3; break;
+      case 3: // Sleep
+        settingsSleepIdx = (settingsSleepIdx + 1) % sleepTimesCount; break;
+      case 4: // Rotate
+        settingsRotate = !settingsRotate; applyRotation(); break;
+      case 5: // WiFi
+        startWiFiService(); break;
+      case 6: // Exit
+        currentState = STATE_MAIN; savePreferences(); break;
     }
     if (currentState == STATE_MENU) drawMenuScreen(); 
   }
@@ -315,7 +315,10 @@ void calculateExposure() {
 void drawBattery(int x, int y) {
   float sum = 0; 
   for(int i=0; i<3; i++) sum += analogRead(PIN_BATTERY);
-  float voltage = (sum/3.0 * 3.3 / 4095.0) * dividerRatio;
+  
+  // 3.04 corrected
+  float voltage = (sum/3.0 * 3.04 / 4095.0) * dividerRatio;
+  
   int percent = map(constrain(voltage * 100, 330, 420), 330, 420, 0, 100);
   
   if (settingsBatStyle == 1) {
@@ -334,40 +337,15 @@ void drawBattery(int x, int y) {
 
 void drawMainScreen() {
   display.clearDisplay();
+  int headerY = 4;
 
-
+  // Header
   display.setTextSize(1);
-  display.setCursor(0, 0);
+  display.setCursor(0, headerY);
   display.print("lux"); display.print((int)currentLux);
-  display.setCursor(60, 0);
+  
+  display.setCursor(60, headerY);
   display.print("EV"); display.print((int)currentEV);
-  drawBattery(110, 0);
-
-
-  int yCenter = 20;
-  int xPadding = 12;
-
-
-  if(selectedIndex == 2) { display.setCursor(0, yCenter + 4); display.print(">"); }
-  display.setTextSize(2);
-  display.setCursor(xPadding, yCenter);
-  display.print("T ");
-  float sVal = shutterSpeeds[shutterIdx];
-  if (sVal > 0) { display.print("1/"); display.print((int)sVal); }
-  else { display.print(abs(sVal), 1); display.print("\""); }
-
-
-  if(selectedIndex == 1) { display.setTextSize(1); display.setCursor(0, yCenter + 26); display.print(">"); }
-  display.setTextSize(2);
-  display.setCursor(xPadding, yCenter + 22);
-  display.print("F ");
-  display.print(fStops[apertureIdx], 1); 
-
-
-  display.setTextSize(1);
-  int isoVal = isoValues[isoIdx];
-  int charCount = 4; if(isoVal<100) charCount+=2; else if(isoVal<1000) charCount+=3; else if(isoVal<10000) charCount+=4; else charCount+=5;
-  int xPos = 128 - (charCount * 6);
   
   if (settingsEvShift != 0) {
     String shiftStr = getEvShiftString();
@@ -376,6 +354,33 @@ void drawMainScreen() {
     display.print(shiftStr);
   }
 
+  drawBattery(110, headerY);
+
+  int yCenter = 20;
+  int xPadding = 12;
+
+  // T
+  if(selectedIndex == 2) { display.setCursor(0, yCenter + 4); display.print(">"); }
+  display.setTextSize(2);
+  display.setCursor(xPadding, yCenter);
+  display.print("T ");
+  float sVal = shutterSpeeds[shutterIdx];
+  if (sVal > 0) { display.print("1/"); display.print((int)sVal); }
+  else { display.print(abs(sVal), 1); display.print("\""); }
+
+  // F
+  if(selectedIndex == 1) { display.setTextSize(1); display.setCursor(0, yCenter + 26); display.print(">"); }
+  display.setTextSize(2);
+  display.setCursor(xPadding, yCenter + 22);
+  display.print("F ");
+  display.print(fStops[apertureIdx], 1); 
+
+  // ISO
+  display.setTextSize(1);
+  int isoVal = isoValues[isoIdx];
+  int charCount = 4; if(isoVal<100) charCount+=2; else if(isoVal<1000) charCount+=3; else if(isoVal<10000) charCount+=4; else charCount+=5;
+  int xPos = 128 - (charCount * 6);
+  
   display.setCursor(xPos, 56);
   if(selectedIndex == 0) display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
   display.print("ISO "); display.print(isoVal);
@@ -386,86 +391,93 @@ void drawMainScreen() {
 
 void drawWiFiScreen() {
   display.clearDisplay();
-  
   display.setTextSize(1);
   display.setCursor(0, 0);
   display.println("--- WIFI SERVICE ---");
-  
   display.setCursor(0, 12);
   display.println("SSID: Light_Matter");
-  
   display.setCursor(0, 24);
   display.println("PASS: 12345678");
-  
   display.setCursor(0, 36);
   display.println("IP:   192.168.4.1");
-  
   display.fillRect(0, 52, 128, 12, SSD1306_WHITE);
   display.setTextColor(SSD1306_BLACK);
   display.setCursor(15, 54);
   display.print("PRESS MENU TO EXIT");
   display.setTextColor(SSD1306_WHITE);
-  
   display.display();
 }
 
+// НОВЕ ІНВЕРСИВНЕ МЕНЮ
 void drawMenuScreen() {
   display.clearDisplay();
   
   display.setTextSize(1);
-  display.setCursor(20, 0);
+  // Зміщений заголовок
+  display.setCursor(20, 4); 
   display.print("--- SETTINGS ---");
   
-  int yBase = 15;
-  int lineH = 9; 
-  int textOffset = 12; 
+  int yBase = 14; 
+  int lineHeight = 12; 
+  int textOffset = 2; // Менший відступ бо нема курсора
 
+  for (int i = 0; i < menuVisibleItems; i++) {
+    int itemIndex = menuScrollTop + i;
+    
+    if (itemIndex >= menuItemsCount) break;
 
-  display.setCursor(0, yBase);
-  if(menuIndex == 0) display.print(">"); 
-  display.setCursor(textOffset, yBase);
-  display.print("WiFi Service");
+    int yPos = yBase + (i * lineHeight);
 
+    // ІНВЕРСІЯ ВИДІЛЕННЯ
+    if (itemIndex == menuIndex) {
+      // Малюємо білий прямокутник фону
+      display.fillRect(0, yPos - 1, 128, lineHeight, SSD1306_WHITE);
+      // Колір тексту - чорний
+      display.setTextColor(SSD1306_BLACK);
+    } else {
+      // Колір тексту - білий
+      display.setTextColor(SSD1306_WHITE);
+    }
 
-  display.setCursor(0, yBase + lineH);
-  if(menuIndex == 1) display.print(">"); 
-  display.setCursor(textOffset, yBase + lineH);
-  display.print("Calib EV: ");
-  display.print(getEvShiftString());
+    display.setCursor(textOffset, yPos);
 
-
-  display.setCursor(0, yBase + lineH*2);
-  if(menuIndex == 2) display.print(">"); 
-  display.setCursor(textOffset, yBase + lineH*2);
-  display.print("Bright: ");
-  display.print(settingsBrightness + 1);
-
-
-  display.setCursor(0, yBase + lineH*3);
-  if(menuIndex == 3) display.print(">"); 
-  display.setCursor(textOffset, yBase + lineH*3);
-  display.print("Bat Ind: ");
-  if(settingsBatStyle == 0) display.print("Icon");
-  else if(settingsBatStyle == 1) display.print("%");
-  else display.print("Volt");
-
-
-  display.setCursor(0, yBase + lineH*4);
-  if(menuIndex == 4) display.print(">"); 
-  display.setCursor(textOffset, yBase + lineH*4);
-  display.print("Sleep: ");
-  display.print(sleepLabels[settingsSleepIdx]);
+    // НОВИЙ ПОРЯДОК ПУНКТІВ
+    switch (itemIndex) {
+      case 0:
+        display.print("Calib EV: ");
+        display.print(getEvShiftString());
+        break;
+      case 1:
+        display.print("Bright: ");
+        display.print(settingsBrightness + 1);
+        break;
+      case 2:
+        display.print("Bat Ind: ");
+        if(settingsBatStyle == 0) display.print("Icon");
+        else if(settingsBatStyle == 1) display.print("%");
+        else display.print("Volt");
+        break;
+      case 3:
+        display.print("Sleep: ");
+        display.print(sleepLabels[settingsSleepIdx]);
+        break;
+      case 4:
+        display.print("Rotate: ");
+        if (settingsRotate == 0) display.print("0 deg");
+        else display.print("180 deg");
+        break;
+      case 5:
+        display.print("WiFi Service");
+        break;
+      case 6:
+        display.print("EXIT / BACK");
+        break;
+    }
+  }
   
+  // Повертаємо стандартний колір для наступних малювань (header, etc)
+  display.setTextColor(SSD1306_WHITE);
 
-  display.setCursor(0, yBase + lineH*5);
-  if(menuIndex == 5) display.print(">"); 
-  display.setCursor(textOffset, yBase + lineH*5);
-  display.print("Rotate: ");
-  if (settingsRotate == 0) display.print("0 deg");
-  else display.print("180 deg");
-
-
-  
   display.display();
 }
 
@@ -473,7 +485,6 @@ void loop() {
   btnMenu.tick();
   btnChange.tick();
   
-
   if (currentState == STATE_WIFI_SERVICE) {
     server.handleClient();
     ElegantOTA.loop();
@@ -481,20 +492,20 @@ void loop() {
   
   unsigned long currentMillis = millis();
 
-
+  // Sleep logic
   long sleepDuration = sleepTimes[settingsSleepIdx];
   if (currentState == STATE_MAIN && sleepDuration > 0 && (currentMillis - lastActivityTime > sleepDuration)) {
     goToSleep();
   }
   
-
+  // Auto exit menu
   if (currentState == STATE_MENU && (currentMillis - lastActivityTime > 15000)) {
     currentState = STATE_MAIN; 
     savePreferences();
     drawMainScreen();
   }
 
-
+  // Sensor reading
   static unsigned long lastSampleTime = 0;
   if (currentMillis - lastSampleTime > 100) { 
     float val = lightMeter.readLightLevel();
@@ -504,7 +515,6 @@ void loop() {
     }
     lastSampleTime = currentMillis;
   }
-
 
   if (currentState == STATE_MAIN) {
     if (currentMillis - lastLuxUpdate > 1000) {
@@ -526,7 +536,7 @@ void loop() {
       lastWiFiDraw = currentMillis;
     }
   }
-  else { 
+  else { // STATE_MENU
     static unsigned long lastMenuUpdate = 0;
     if (currentMillis - lastMenuUpdate > 100) {
        drawMenuScreen();
